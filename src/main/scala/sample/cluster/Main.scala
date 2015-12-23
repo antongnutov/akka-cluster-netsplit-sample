@@ -1,11 +1,12 @@
 package sample.cluster
 
-import java.util.concurrent.TimeUnit
-
 import akka.actor.{ActorSystem, AddressFromURIString}
 import akka.cluster.Cluster
 import com.typesafe.config.ConfigFactory
 import org.slf4j.LoggerFactory
+import sample.cluster.api.ApiActor
+
+import scala.concurrent.duration.Duration
 
 /**
  * @author Anton Gnutov
@@ -15,15 +16,20 @@ object Main extends App {
   val config = ConfigFactory.load()
 
   val seedNode = AddressFromURIString(config.getString("sample.seed-node"))
-  val unreachableTimeout = config.getDuration("sample.unreachable.timeout", TimeUnit.SECONDS)
+  val unreachableTimeout = Duration(config.getString("sample.unreachable.timeout"))
 
   import scala.collection.JavaConversions.collectionAsScalaIterable
   val nodesList = config.getStringList("sample.nodes").map(AddressFromURIString(_)).toList.sortBy(_.toString)
+
+  val apiHost = config.getString("sample.api.host")
+  val apiPort = config.getInt("sample.api.port")
 
   registerSystem(ActorSystem("sample"))
 
   def registerSystem(system: ActorSystem) {
     log.debug("Starting actor system ...")
+
+    system.actorOf(ApiActor.props(apiHost, apiPort))
     system.actorOf(ClusterManagerActor.props(seedNode, nodesList, unreachableTimeout), "ClusterManager")
 
     Cluster(system).registerOnMemberRemoved {
