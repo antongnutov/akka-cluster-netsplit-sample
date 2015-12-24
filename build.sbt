@@ -7,7 +7,7 @@ organization in ThisBuild := "sample"
 scalaVersion := "2.11.7"
 
 val akkaVersion = "2.4.1"
-val akkaStreamsVersion = "2.0"
+val akkaStreamsVersion = "2.0.1"
 val log4j2Version = "2.4.1"
 
 libraryDependencies ++= Seq(
@@ -19,6 +19,9 @@ libraryDependencies ++= Seq(
     // Reactive Stream Dependencies
     "com.typesafe.akka" %% "akka-http-experimental" % akkaStreamsVersion,
     "com.typesafe.akka" %% "akka-http-spray-json-experimental" % akkaStreamsVersion,
+
+    // JSON
+    "org.json4s" %% "json4s-jackson" % "3.3.0",
 
     // Logging
     "org.apache.logging.log4j" % "log4j-slf4j-impl" % log4j2Version,

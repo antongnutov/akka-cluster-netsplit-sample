@@ -4,6 +4,7 @@ import akka.actor.ActorSystem
 import akka.cluster.Cluster
 import akka.http.scaladsl.server.Directives._
 import akka.stream.ActorMaterializer
+import sample.cluster.api.json.{ClusterState, ApiDecoder}
 
 /**
   * REST Route, used to provide siple claster state via http.
@@ -20,8 +21,7 @@ trait RestRoutes {
   val restRoute = restPath {
     path("cluster") {
       get {
-        // complete(ApiDecoder.encodeRequest(ClusterState(cluster.state.members, cluster.state.leader)))
-        complete("{vkal: true}")
+         complete(ApiDecoder.encode(ClusterState(cluster.state.members, cluster.state.leader)))
       }
     }
   }
