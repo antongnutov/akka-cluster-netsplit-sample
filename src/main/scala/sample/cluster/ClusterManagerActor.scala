@@ -3,7 +3,7 @@ package sample.cluster
 import akka.actor._
 import akka.cluster.Cluster
 import akka.cluster.ClusterEvent._
-import sample.cluster.CheckClusterActor.{CheckNodesResponse, CheckNodes}
+import sample.cluster.CheckClusterActor.{CheckNodesResponse, CheckNodesRequest}
 import sample.cluster.ClusterManagerActor._
 
 import scala.concurrent.duration._
@@ -11,17 +11,18 @@ import scala.concurrent.duration._
 /**
   * @author Anton Gnutov
   */
-class ClusterManagerActor(seedNode: Address, nodesList: List[Address], unreachableTimeout: FiniteDuration)
-  extends FSM[State, Data] with ActorLogging {
+class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data] with ActorLogging {
 
   val cluster = Cluster(context.system)
 
   import context.dispatcher
   val joinTimer = context.system.scheduler.schedule(1.second, 5.seconds, self, JoinCluster)
 
+  lazy val checkCluster = context.actorOf(CheckClusterActor.props(config.apiPort))
+
   override def preStart(): Unit = {
-    log.debug("Expected cluster nodes: {}", nodesList.mkString("[", ", ", "]"))
-    log.debug("Seed node: {}", seedNode)
+    log.debug("Expected cluster nodes: {}", config.nodesList.mkString("[", ", ", "]"))
+    log.debug("Seed node: {}", config.seedNode)
     cluster.subscribe(self, initialStateMode = InitialStateAsSnapshot, classOf[MemberEvent], classOf[ReachabilityEvent])
   }
 
@@ -36,7 +37,7 @@ class ClusterManagerActor(seedNode: Address, nodesList: List[Address], unreachab
   when(Start) {
     case Event(JoinCluster, _) =>
       log.debug("Trying to join the cluster ...")
-      cluster.join(seedNode)
+      cluster.join(config.seedNode)
       stay()
 
     case Event(MemberJoined(member), _) =>
@@ -62,14 +63,13 @@ class ClusterManagerActor(seedNode: Address, nodesList: List[Address], unreachab
   when(Active) {
     case Event(UnreachableMember(member), _) =>
       log.debug("Node is unreachable: {}", member)
-      val cancellable = context.system.scheduler.scheduleOnce(unreachableTimeout, self, UnreachableTimeout(member.address))
+      val cancellable = context.system.scheduler.scheduleOnce(config.unreachableTimeout, self, UnreachableTimeout(member.address))
       goto(Incomplete) using Unreachable(Map(member.address -> cancellable))
 
     case Event(CheckNodesResponse(leader), _) =>
 
-      //TODO: implement
-
-      stay()
+      //TODO: implement restart and use leader as seedNode
+      stop()
 
     case Event(ev: MemberEvent, _) =>
       log.debug("[Event: {}", ev)
@@ -86,16 +86,17 @@ class ClusterManagerActor(seedNode: Address, nodesList: List[Address], unreachab
       stay() using Unreachable(schedules - address)
 
     case Event(MemberRemoved(member, previousStatus), Unreachable(schedules)) =>
-      if (cluster.state.members.size == 1 && member.address != seedNode) {
+      if (cluster.state.members.size == 1 && member.address != config.seedNode) {
         log.warning("Only 1 node remain in the cluster, restarting ...")
         stop()
-      } else if (member.address == seedNode) {
+      } else if (member.address == config.seedNode) {
         log.warning("Lost seedNode")
       }
 
       if (schedules.isEmpty) {
-        if (!cluster.state.members.map(_.address).contains(seedNode)) {
-          context.actorOf(CheckClusterActor.props) ! CheckNodes(nodesList.diff(cluster.state.members.map(_.address).toList))
+        if (!cluster.state.members.map(_.address).contains(config.seedNode)) {
+          context.system.scheduler.schedule(1.second, config.unreachableTimeout, checkCluster,
+            CheckNodesRequest(cluster.state, config.nodesList))
         }
         goto(Active) using Empty
       } else {
@@ -104,7 +105,7 @@ class ClusterManagerActor(seedNode: Address, nodesList: List[Address], unreachab
 
     case Event(UnreachableMember(member), Unreachable(schedules)) =>
       log.debug("Node is unreachable: {}", member)
-      val cancellable = context.system.scheduler.scheduleOnce(unreachableTimeout, self, UnreachableTimeout(member.address))
+      val cancellable = context.system.scheduler.scheduleOnce(config.unreachableTimeout, self, UnreachableTimeout(member.address))
       stay() using Unreachable(schedules + (member.address -> cancellable))
 
     case Event(ReachableMember(member), Unreachable(schedules)) =>
@@ -134,6 +135,8 @@ class ClusterManagerActor(seedNode: Address, nodesList: List[Address], unreachab
 
 object ClusterManagerActor {
 
+  case class ClusterManagerConfig(seedNode: Address, nodesList: List[Address], unreachableTimeout: FiniteDuration, apiPort: Int)
+
   sealed trait Data
   case object Empty extends Data
   case class Unreachable(schedules: Map[Address, Cancellable]) extends Data
@@ -146,6 +149,6 @@ object ClusterManagerActor {
   case object JoinCluster
   case class UnreachableTimeout(address: Address)
 
-  def props(seedNode: Address, nodesList: List[Address], unreachableTimeout: Duration): Props =
-    Props(classOf[ClusterManagerActor], seedNode, nodesList, unreachableTimeout)
+  def props(config: ClusterManagerConfig): Props =
+    Props(classOf[ClusterManagerActor], config)
 }

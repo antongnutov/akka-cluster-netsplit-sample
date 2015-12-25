@@ -1,16 +1,19 @@
 package sample.cluster
 
+import java.util.concurrent.TimeUnit
+
 import akka.actor.{ActorSystem, AddressFromURIString}
 import akka.cluster.Cluster
 import com.typesafe.config.ConfigFactory
 import org.slf4j.LoggerFactory
+import sample.cluster.ClusterManagerActor.ClusterManagerConfig
 import sample.cluster.api.ApiActor
 
-import scala.concurrent.duration.Duration
+import scala.concurrent.duration.{FiniteDuration, Duration}
 
 /**
- * @author Anton Gnutov
- */
+  * @author Anton Gnutov
+  */
 object Main extends App {
   val log = LoggerFactory.getLogger(Main.getClass)
   val config = ConfigFactory.load()
@@ -19,6 +22,7 @@ object Main extends App {
   val unreachableTimeout = Duration(config.getString("sample.unreachable.timeout"))
 
   import scala.collection.JavaConversions.collectionAsScalaIterable
+
   val nodesList = config.getStringList("sample.nodes").map(AddressFromURIString(_)).toList.sortBy(_.toString)
 
   val apiHost = config.getString("sample.api.host")
@@ -30,7 +34,9 @@ object Main extends App {
     log.debug("Starting actor system ...")
 
     system.actorOf(ApiActor.props(apiHost, apiPort))
-    system.actorOf(ClusterManagerActor.props(seedNode, nodesList, unreachableTimeout), "ClusterManager")
+    system.actorOf(ClusterManagerActor.props(
+      ClusterManagerConfig(seedNode, nodesList, FiniteDuration(unreachableTimeout.toSeconds, TimeUnit.SECONDS), apiPort)),
+      "ClusterManager")
 
     Cluster(system).registerOnMemberRemoved {
       log.warn("Removed from cluster, terminating actor system ...")
