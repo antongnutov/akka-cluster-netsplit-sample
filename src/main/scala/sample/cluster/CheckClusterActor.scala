@@ -8,7 +8,7 @@ import sample.cluster.CheckClusterActor.{CheckNodesRequest, CheckNodesResponse}
 import sample.cluster.CheckHttpActor.{CheckHttpRequest, CheckHttpResponse}
 
 import scala.concurrent.duration._
-import scala.util.{Failure, Success}
+import scala.util.Success
 
 /**
   * @author Anton Gnutov
@@ -41,7 +41,7 @@ class CheckClusterActor(val apiPort: Int) extends Actor with ActorLogging {
               case None =>
             }
 
-          case Failure(e) => log.warning("Could not receive response for host {} in 10 seconds: {}", host, e.getMessage)
+          case _ => log.warning("Could not receive response for host {}", host)
         }
       }
   }

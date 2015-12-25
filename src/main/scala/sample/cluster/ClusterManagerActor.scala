@@ -4,6 +4,7 @@ import akka.actor._
 import akka.cluster.Cluster
 import akka.cluster.ClusterEvent._
 import akka.pattern.ask
+import akka.util.Timeout
 import sample.cluster.CheckClusterActor.{CheckNodesRequest, CheckNodesResponse}
 import sample.cluster.CheckHttpActor.GracefulStop
 import sample.cluster.ClusterManagerActor._
@@ -21,6 +22,8 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
   val joinTimer = context.system.scheduler.schedule(1.second, 5.seconds, self, JoinCluster)
 
   lazy val checkCluster = context.actorOf(CheckClusterActor.props(config.apiPort), "checkCluster")
+
+  implicit val timeout = Timeout(10.seconds)
 
   override def preStart(): Unit = {
     log.debug("Expected cluster nodes: {}", config.nodesList.mkString("[", ", ", "]"))
