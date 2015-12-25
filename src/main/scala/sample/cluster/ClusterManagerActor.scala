@@ -3,6 +3,7 @@ package sample.cluster
 import akka.actor._
 import akka.cluster.Cluster
 import akka.cluster.ClusterEvent._
+import sample.cluster.CheckClusterActor.{CheckNodesResponse, CheckNodes}
 import sample.cluster.ClusterManagerActor._
 
 import scala.concurrent.duration._
@@ -64,6 +65,12 @@ class ClusterManagerActor(seedNode: Address, nodesList: List[Address], unreachab
       val cancellable = context.system.scheduler.scheduleOnce(unreachableTimeout, self, UnreachableTimeout(member.address))
       goto(Incomplete) using Unreachable(Map(member.address -> cancellable))
 
+    case Event(CheckNodesResponse(leader), _) =>
+
+      //TODO: implement
+
+      stay()
+
     case Event(ev: MemberEvent, _) =>
       log.debug("[Event: {}", ev)
       stay()
@@ -84,12 +91,12 @@ class ClusterManagerActor(seedNode: Address, nodesList: List[Address], unreachab
         stop()
       } else if (member.address == seedNode) {
         log.warning("Lost seedNode")
-
-        // TODO: check api on lost nodes and merge clusters
-        // TODO: do it in new state
       }
 
       if (schedules.isEmpty) {
+        if (!cluster.state.members.map(_.address).contains(seedNode)) {
+          context.actorOf(CheckClusterActor.props) ! CheckNodes(nodesList.diff(cluster.state.members.map(_.address).toList))
+        }
         goto(Active) using Empty
       } else {
         stay()
