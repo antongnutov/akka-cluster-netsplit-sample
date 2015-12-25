@@ -3,7 +3,9 @@ package sample.cluster
 import akka.actor._
 import akka.cluster.Cluster
 import akka.cluster.ClusterEvent._
-import sample.cluster.CheckClusterActor.{CheckNodesResponse, CheckNodesRequest}
+import akka.pattern.ask
+import sample.cluster.CheckClusterActor.{CheckNodesRequest, CheckNodesResponse}
+import sample.cluster.CheckHttpActor.GracefulStop
 import sample.cluster.ClusterManagerActor._
 
 import scala.concurrent.duration._
@@ -18,7 +20,7 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
   import context.dispatcher
   val joinTimer = context.system.scheduler.schedule(1.second, 5.seconds, self, JoinCluster)
 
-  lazy val checkCluster = context.actorOf(CheckClusterActor.props(config.apiPort))
+  lazy val checkCluster = context.actorOf(CheckClusterActor.props(config.apiPort), "checkCluster")
 
   override def preStart(): Unit = {
     log.debug("Expected cluster nodes: {}", config.nodesList.mkString("[", ", ", "]"))
@@ -68,8 +70,13 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
 
     case Event(CheckNodesResponse(leader), _) =>
 
-      //TODO: implement restart and use leader as seedNode
-      stop()
+      if (leader.isDefined) {
+        context.actorSelection("/user/checkCluster/checkHttp") ? GracefulStop onComplete {
+          //TODO: implement restart and use leader as seedNode
+          case _ => stop()
+        }
+      }
+      stay()
 
     case Event(ev: MemberEvent, _) =>
       log.debug("[Event: {}", ev)

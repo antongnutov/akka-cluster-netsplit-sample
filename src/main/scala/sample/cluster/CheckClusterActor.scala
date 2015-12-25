@@ -15,7 +15,7 @@ import scala.util.{Failure, Success}
   */
 class CheckClusterActor(val apiPort: Int) extends Actor with ActorLogging {
 
-  lazy val checkHttp = context.actorOf(CheckHttpActor.props)
+  lazy val checkHttp = context.actorOf(CheckHttpActor.props, "checkHttp")
 
   implicit val timeout = Timeout(10.seconds)
 
