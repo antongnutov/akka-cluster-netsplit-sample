@@ -21,6 +21,8 @@ object Main extends App {
   val seedNode = AddressFromURIString(config.getString("sample.seed-node"))
   val unreachableTimeout = Duration(config.getString("sample.unreachable.timeout"))
 
+  SeedNodeProvider.updateSeedNode(seedNode)
+
   import scala.collection.JavaConversions.collectionAsScalaIterable
 
   val nodesList = config.getStringList("sample.nodes").map(AddressFromURIString(_)).toList.sortBy(_.toString)
@@ -35,8 +37,8 @@ object Main extends App {
 
     system.actorOf(ApiActor.props(apiHost, apiPort))
     system.actorOf(ClusterManagerActor.props(
-      ClusterManagerConfig(seedNode, nodesList, FiniteDuration(unreachableTimeout.toSeconds, TimeUnit.SECONDS), apiPort)),
-      "ClusterManager")
+      ClusterManagerConfig(SeedNodeProvider.getSeedNode, nodesList, FiniteDuration(unreachableTimeout.toSeconds, TimeUnit.SECONDS), apiPort)),
+      "clusterManager")
 
     Cluster(system).registerOnMemberRemoved {
       log.warn("Removed from cluster, terminating actor system ...")

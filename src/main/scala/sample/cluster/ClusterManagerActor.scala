@@ -75,8 +75,10 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
 
       if (leader.isDefined) {
         context.actorSelection("/user/checkCluster/checkHttp") ? GracefulStop onComplete {
-          //TODO: implement restart and use leader as seedNode
-          case _ => stop()
+          case _ =>
+            //TODO: invent more FP-style solution how to store leader
+            SeedNodeProvider.updateSeedNode(leader.get)
+            stop()
         }
       }
       stay()
@@ -96,9 +98,9 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
       stay() using Unreachable(schedules - address)
 
     case Event(MemberRemoved(member, previousStatus), Unreachable(schedules)) =>
-      if (cluster.state.members.size == 1 && member.address != config.seedNode) {
+      if (cluster.state.members.size == 1 && cluster.selfAddress != config.seedNode) {
         log.warning("Only 1 node remain in the cluster, restarting ...")
-        stop()
+        context.stop(self)
       } else if (member.address == config.seedNode) {
         log.warning("Lost seedNode")
       }
