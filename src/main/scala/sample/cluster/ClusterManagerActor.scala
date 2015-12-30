@@ -71,15 +71,15 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
       val cancellable = context.system.scheduler.scheduleOnce(config.unreachableTimeout, self, UnreachableTimeout(member.address))
       goto(Incomplete) using Unreachable(Map(member.address -> cancellable))
 
-    case Event(CheckNodesResponse(leader), _) =>
-
-      if (leader.isDefined) {
-        context.actorSelection("/user/checkCluster/checkHttp") ? GracefulStop onComplete {
-          case _ =>
-            //TODO: invent more FP-style solution how to store leader
-            SeedNodeProvider.updateSeedNode(leader.get)
-            stop()
-        }
+    case Event(CheckNodesResponse(Some(leader)), _) =>
+      log.debug("Stopping http client ...")
+      context.actorSelection("/user/clusterManager/checkCluster/checkHttp") ? GracefulStop onComplete {
+        case _ =>
+          //TODO: invent more FP-style solution how to store leader
+          log.info("Updating seedNode to {}", leader)
+          SeedNodeProvider.updateSeedNode(leader)
+          log.info("Restarting actor system ...")
+          context.stop(self)
       }
       stay()
 
@@ -103,13 +103,12 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
         context.stop(self)
       } else if (member.address == config.seedNode) {
         log.warning("Lost seedNode")
+        log.debug("Scheduling cluster network split search ...")
+        context.system.scheduler.schedule(1.second, config.unreachableTimeout, checkCluster,
+          CheckNodesRequest(cluster.state, config.nodesList))
       }
 
       if (schedules.isEmpty) {
-        if (!cluster.state.members.map(_.address).contains(config.seedNode)) {
-          context.system.scheduler.schedule(1.second, config.unreachableTimeout, checkCluster,
-            CheckNodesRequest(cluster.state, config.nodesList))
-        }
         goto(Active) using Empty
       } else {
         stay()
@@ -129,6 +128,10 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
       } else {
         stay() using Unreachable(newSchedules)
       }
+
+    case Event(CheckNodesResponse(_), _) =>
+      log.debug("Ignore http responses in Incomplete state")
+      stay()
   }
 
   whenUnhandled {

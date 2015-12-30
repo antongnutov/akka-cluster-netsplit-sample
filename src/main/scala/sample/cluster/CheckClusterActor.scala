@@ -31,15 +31,14 @@ class CheckClusterActor(val apiPort: Int) extends Actor with ActorLogging {
 
       diff.foreach { host =>
         (checkHttp ? CheckHttpRequest(s"http://$host:$apiPort/rest/cluster")).onComplete {
-          case Success(CheckHttpResponse(clusterState)) =>
-            clusterState match {
-              case Some(state) =>
-                val newHosts = state.members.flatMap(_.address.host).toList.sorted
+          case Success(CheckHttpResponse(Some(clusterState))) =>
+            val newHosts = clusterState.members.flatMap(_.address.host).toList.sorted
 
-                if (newHosts.nonEmpty && (currentHosts.isEmpty || newHosts.head < currentHosts.sorted.head)) {
-                  replyTo ! CheckNodesResponse(state.leader)
-                }
-              case None =>
+            log.debug("Detected cluster with hosts: {}", newHosts.mkString("[", ", ", "]"))
+            log.debug("Current cluster hosts: {}", currentHosts.sorted.mkString("[", ", ", "]"))
+
+            if (newHosts.nonEmpty && (currentHosts.isEmpty || newHosts.head < currentHosts.sorted.head)) {
+              replyTo ! CheckNodesResponse(clusterState.leader)
             }
 
           case _ => log.warning("Could not receive response for host {}", host)
