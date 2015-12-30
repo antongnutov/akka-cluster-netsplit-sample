@@ -30,7 +30,7 @@ class CheckClusterActor(val apiPort: Int) extends Actor with ActorLogging {
       val replyTo = sender()
 
       diff.foreach { host =>
-        (checkHttp ? CheckHttpRequest(s"http://$host:$apiPort/rest/cluster}")).onComplete {
+        (checkHttp ? CheckHttpRequest(s"http://$host:$apiPort/rest/cluster")).onComplete {
           case Success(CheckHttpResponse(clusterState)) =>
             clusterState match {
               case Some(state) =>
