@@ -1,7 +1,7 @@
 package sample.cluster
 
 import akka.actor._
-import akka.cluster.Cluster
+import akka.cluster.{Member, MemberStatus, Cluster}
 import akka.cluster.ClusterEvent._
 import akka.pattern.ask
 import akka.util.Timeout
@@ -68,8 +68,16 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
   when(Active) {
     case Event(UnreachableMember(member), _) =>
       log.debug("Node is unreachable: {}", member)
-      val cancellable = context.system.scheduler.scheduleOnce(config.unreachableTimeout, self, UnreachableTimeout(member.address))
-      goto(Incomplete) using Unreachable(Map(member.address -> cancellable))
+      if (member.status == MemberStatus.Down) {
+        stay()
+      } else {
+        val cancellable = context.system.scheduler.scheduleOnce(config.unreachableTimeout, self, UnreachableTimeout(member.address))
+        goto(Incomplete) using Unreachable(Map(member.address -> cancellable))
+      }
+
+    case Event(MemberRemoved(member, _), _) =>
+      onNodeRemoved(member)
+      stay()
 
     case Event(CheckNodesResponse(Some(leader)), _) =>
       log.debug("Stopping http client ...")
@@ -96,21 +104,15 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
   when(Incomplete) {
     case Event(UnreachableTimeout(address), Unreachable(schedules)) =>
       log.debug("Unreachable timeout received: {}", address)
+      log.debug("Current cluster members: {}", cluster.state.members.map(_.address).mkString("[", ", ", "]"))
       cluster.state.members.find(_.address == address).foreach { m =>
         log.info("Removing node [{}] from cluster ...", address)
         cluster.down(address)
       }
       stay() using Unreachable(schedules - address)
 
-    case Event(MemberRemoved(member, previousStatus), Unreachable(schedules)) =>
-      if (cluster.state.members.size == 1 && cluster.selfAddress != config.seedNode) {
-        log.warning("Only 1 node remain in the cluster, restarting ...")
-        context.stop(self)
-      } else if (member.address == config.seedNode) {
-        log.warning("Lost seedNode")
-        log.debug("Scheduling cluster network split search ...")
-        context.system.scheduler.scheduleOnce(1.second, self, RefreshNetSplit)
-      }
+    case Event(MemberRemoved(member, _), Unreachable(schedules)) =>
+      onNodeRemoved(member)
 
       if (schedules.isEmpty) {
         goto(Active) using Empty
@@ -141,6 +143,17 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
       log.debug("Ignore network split search in Incomplete state")
       context.system.scheduler.scheduleOnce(config.netSplitRefreshInterval, self, RefreshNetSplit)
       stay()
+  }
+
+  private def onNodeRemoved(member: Member): Any = {
+    if (cluster.state.members.size == 1 && cluster.selfAddress != config.seedNode) {
+      log.warning("Only 1 node remain in the cluster, restarting ...")
+      context.stop(self)
+    } else if (member.address == config.seedNode) {
+      log.warning("Lost seedNode")
+      log.debug("Scheduling cluster network split search ...")
+      context.system.scheduler.scheduleOnce(1.second, self, RefreshNetSplit)
+    }
   }
 
   whenUnhandled {
