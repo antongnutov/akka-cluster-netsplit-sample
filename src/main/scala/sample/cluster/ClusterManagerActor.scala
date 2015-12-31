@@ -104,7 +104,7 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
       } else if (member.address == config.seedNode) {
         log.warning("Lost seedNode")
         log.debug("Scheduling cluster network split search ...")
-        context.system.scheduler.schedule(1.second, config.unreachableTimeout, checkCluster,
+        context.system.scheduler.schedule(1.second, config.netSplitRefreshInterval, checkCluster,
           CheckNodesRequest(cluster.state, config.nodesList))
       }
 
@@ -150,7 +150,8 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
 
 object ClusterManagerActor {
 
-  case class ClusterManagerConfig(seedNode: Address, nodesList: List[Address], unreachableTimeout: FiniteDuration, apiPort: Int)
+  case class ClusterManagerConfig(seedNode: Address, nodesList: List[Address], unreachableTimeout: FiniteDuration,
+                                  netSplitRefreshInterval: FiniteDuration, apiPort: Int)
 
   sealed trait Data
   case object Empty extends Data
