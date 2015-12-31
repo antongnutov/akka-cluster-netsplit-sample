@@ -83,6 +83,11 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
       }
       stay()
 
+    case Event(RefreshNetSplit, _) =>
+      checkCluster ! CheckNodesRequest(cluster.state, config.nodesList)
+      context.system.scheduler.scheduleOnce(config.netSplitRefreshInterval, self, RefreshNetSplit)
+      stay()
+
     case Event(ev: MemberEvent, _) =>
       log.debug("[Event: {}", ev)
       stay()
@@ -104,8 +109,7 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
       } else if (member.address == config.seedNode) {
         log.warning("Lost seedNode")
         log.debug("Scheduling cluster network split search ...")
-        context.system.scheduler.schedule(1.second, config.netSplitRefreshInterval, checkCluster,
-          CheckNodesRequest(cluster.state, config.nodesList))
+        context.system.scheduler.scheduleOnce(1.second, self, RefreshNetSplit)
       }
 
       if (schedules.isEmpty) {
@@ -131,6 +135,11 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
 
     case Event(CheckNodesResponse(_), _) =>
       log.debug("Ignore http responses in Incomplete state")
+      stay()
+
+    case Event(RefreshNetSplit, _) =>
+      log.debug("Ignore network split search in Incomplete state")
+      context.system.scheduler.scheduleOnce(config.netSplitRefreshInterval, self, RefreshNetSplit)
       stay()
   }
 
@@ -163,6 +172,7 @@ object ClusterManagerActor {
   case object Incomplete extends State
 
   case object JoinCluster
+  case object RefreshNetSplit
   case class UnreachableTimeout(address: Address)
 
   def props(config: ClusterManagerConfig): Props =
