@@ -12,16 +12,35 @@ import sample.cluster.ClusterManagerActor._
 import scala.concurrent.duration._
 
 /**
+  * Cluster manager actor, manages current instance cluster state, and makes decisions about cluster management.<br/>
+  *
+  * Implemented as FSM. States:
+  * <ul>
+  *   <li>Start</li>
+  *   <li>Active</li>
+  *   <li>Incomplete</li>
+  * </ul>
+  *
+  * <code>Start</code> is used only before joining the cluster. After it actor goes to state <code>Active</code><br/>
+  * <code>Active</code> state means that all nodes are accessible and there are no unreachable nodes.
+  * When any node becomes unreachable actor goes to state <code>Incomplete</code> and it stays there until cluster is stable.
+  * <br/><br/>
+  *
+  * When some nodes become unreachable this actor initializes other nodes search with <code>CheckClusterActor</code>.
+  *
+  * @see CheckClusterActor
+  *
   * @author Anton Gnutov
   */
-class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data] with ActorLogging {
+class ClusterManagerActor(config: ClusterManagerConfig, checkClusterProps: Props) extends FSM[State, Data] with ActorLogging {
 
   val cluster = Cluster(context.system)
 
   import context.dispatcher
-  val joinTimer = context.system.scheduler.schedule(1.second, 5.seconds, self, JoinCluster)
 
-  lazy val checkCluster = context.actorOf(CheckClusterActor.props(config.apiPort), "checkCluster")
+  setTimer("JoinCluster", JoinCluster, 1.second, repeat = true)
+
+  lazy val checkCluster = context.actorOf(checkClusterProps, "checkCluster")
 
   implicit val timeout = Timeout(10.seconds)
 
@@ -32,7 +51,7 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
   }
 
   override def postStop(): Unit = {
-    joinTimer.cancel()
+    cancelTimer("JoinCluster")
     cluster.unsubscribe(self)
     cluster.down(cluster.selfAddress)
   }
@@ -48,7 +67,7 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
     case Event(MemberJoined(member), _) =>
       if (member.address == cluster.selfAddress) {
         log.debug("Joining the cluster")
-        joinTimer.cancel()
+        cancelTimer("JoinCluster")
       }
       stay()
 
@@ -56,7 +75,7 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
       log.debug("Node is up: {}", member)
       if (member.address == cluster.selfAddress) {
         log.info("Joined the cluster")
-        joinTimer.cancel()
+        cancelTimer("JoinCluster")
         goto(Active)
       } else {
         stay()
@@ -71,8 +90,8 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
       if (member.status == MemberStatus.Down) {
         stay()
       } else {
-        val cancellable = context.system.scheduler.scheduleOnce(config.unreachableTimeout, self, UnreachableTimeout(member.address))
-        goto(Incomplete) using Unreachable(Map(member.address -> cancellable))
+        setTimer(member.address.toString, UnreachableTimeout(member.address), config.unreachableTimeout)
+        goto(Incomplete) using Unreachable(List(member.address))
       }
 
     case Event(MemberRemoved(member, _), _) =>
@@ -93,7 +112,7 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
 
     case Event(RefreshNetSplit, _) =>
       checkCluster ! CheckNodesRequest(cluster.state, config.nodesList)
-      context.system.scheduler.scheduleOnce(config.netSplitRefreshInterval, self, RefreshNetSplit)
+      setTimer("RefreshNetSplit", RefreshNetSplit, config.netSplitRefreshInterval)
       stay()
 
     case Event(ev: MemberEvent, _) =>
@@ -102,14 +121,14 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
   }
 
   when(Incomplete) {
-    case Event(UnreachableTimeout(address), Unreachable(schedules)) =>
+    case Event(UnreachableTimeout(address), Unreachable(addresses)) =>
       log.debug("Unreachable timeout received: {}", address)
       log.debug("Current cluster members: {}", cluster.state.members.map(_.address).mkString("[", ", ", "]"))
       cluster.state.members.find(_.address == address).foreach { m =>
         log.info("Removing node [{}] from cluster ...", address)
         cluster.down(address)
       }
-      stay() using Unreachable(schedules - address)
+      stay() using Unreachable(addresses.filterNot(_ == address))
 
     case Event(MemberRemoved(member, _), Unreachable(schedules)) =>
       onNodeRemoved(member)
@@ -120,15 +139,15 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
         stay()
       }
 
-    case Event(UnreachableMember(member), Unreachable(schedules)) =>
+    case Event(UnreachableMember(member), Unreachable(addresses)) =>
       log.debug("Node is unreachable: {}", member)
-      val cancellable = context.system.scheduler.scheduleOnce(config.unreachableTimeout, self, UnreachableTimeout(member.address))
-      stay() using Unreachable(schedules + (member.address -> cancellable))
+      setTimer(member.address.toString, UnreachableTimeout(member.address), config.unreachableTimeout)
+      stay() using Unreachable(member.address +: addresses)
 
-    case Event(ReachableMember(member), Unreachable(schedules)) =>
+    case Event(ReachableMember(member), Unreachable(addresses)) =>
       log.debug("Node is reachable again: {}", member)
-      schedules.get(member.address).foreach(_.cancel())
-      val newSchedules = schedules - member.address
+      cancelTimer(member.address.toString)
+      val newSchedules = addresses.filterNot(_ == member.address)
       if (newSchedules.isEmpty) {
         goto(Active) using Empty
       } else {
@@ -141,7 +160,7 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
 
     case Event(RefreshNetSplit, _) =>
       log.debug("Ignore network split search in Incomplete state")
-      context.system.scheduler.scheduleOnce(config.netSplitRefreshInterval, self, RefreshNetSplit)
+      setTimer("RefreshNetSplit", RefreshNetSplit, config.netSplitRefreshInterval)
       stay()
   }
 
@@ -152,7 +171,7 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
     } else if (member.address == config.seedNode) {
       log.warning("Lost seedNode")
       log.debug("Scheduling cluster network split search ...")
-      context.system.scheduler.scheduleOnce(1.second, self, RefreshNetSplit)
+      setTimer("RefreshNetSplit", RefreshNetSplit, 1.second)
     }
   }
 
@@ -173,11 +192,11 @@ class ClusterManagerActor(config: ClusterManagerConfig) extends FSM[State, Data]
 object ClusterManagerActor {
 
   case class ClusterManagerConfig(seedNode: Address, nodesList: List[Address], unreachableTimeout: FiniteDuration,
-                                  netSplitRefreshInterval: FiniteDuration, apiPort: Int)
+                                  netSplitRefreshInterval: FiniteDuration)
 
   sealed trait Data
   case object Empty extends Data
-  case class Unreachable(schedules: Map[Address, Cancellable]) extends Data
+  case class Unreachable(addresses: List[Address]) extends Data
 
   sealed trait State
   case object Start extends State
@@ -188,6 +207,6 @@ object ClusterManagerActor {
   case object RefreshNetSplit
   case class UnreachableTimeout(address: Address)
 
-  def props(config: ClusterManagerConfig): Props =
-    Props(classOf[ClusterManagerActor], config)
+  def props(config: ClusterManagerConfig, checkClusterProps: Props): Props =
+    Props(classOf[ClusterManagerActor], config, checkClusterProps)
 }

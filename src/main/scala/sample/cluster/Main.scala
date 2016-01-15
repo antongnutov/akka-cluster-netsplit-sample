@@ -40,8 +40,13 @@ object Main extends App {
     log.debug("Starting actor system ...")
 
     system.actorOf(ApiActor.props(apiHost, apiPort))
+
+    val checkHttpProps = CheckHttpActor.props
+    val checkClusterProps = CheckClusterActor.props(apiPort, checkHttpProps)
+
     system.actorOf(ClusterManagerActor.props(
-      ClusterManagerConfig(SeedNodeProvider.getSeedNode, nodesList, unreachableTimeout, netSplitRefreshInterval, apiPort)),
+      ClusterManagerConfig(SeedNodeProvider.getSeedNode, nodesList, unreachableTimeout, netSplitRefreshInterval),
+      checkClusterProps),
       "clusterManager")
 
     Cluster(system).registerOnMemberRemoved {

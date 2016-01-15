@@ -11,11 +11,19 @@ import scala.concurrent.duration._
 import scala.util.Success
 
 /**
+  * Actor that checks cluster state via <code>CheckHttpActor</code> actor. It requests all nodes in specified
+  * addresses sequence via http. If it receives answer from any node it compares cluster nodes with current ones.
+  * Cluster winner is defined by alphabetically order of node names. If new cluster wins then current cluster
+  * should be stopped. Only in such case <code>CheckNodesResponse(leader)</code> is sent to original sender. <br/>
+  *
+  * Input message: <code>CheckNodesRequest(currentState, nodes)</code>
+  * Output message: <code>CheckNodesResponse(leader)</code>
+  *
   * @author Anton Gnutov
   */
-class CheckClusterActor(val apiPort: Int) extends Actor with ActorLogging {
+class CheckClusterActor(val apiPort: Int, checkHttpProps: Props) extends Actor with ActorLogging {
 
-  lazy val checkHttp = context.actorOf(CheckHttpActor.props, "checkHttp")
+  lazy val checkHttp = context.actorOf(checkHttpProps, "checkHttp")
 
   implicit val timeout = Timeout(10.seconds)
 
@@ -48,7 +56,7 @@ class CheckClusterActor(val apiPort: Int) extends Actor with ActorLogging {
 }
 
 object CheckClusterActor {
-  def props(apiPort: Int): Props = Props(classOf[CheckClusterActor], apiPort)
+  def props(apiPort: Int, checkHttpProps: Props): Props = Props(classOf[CheckClusterActor], apiPort, checkHttpProps)
 
   case class CheckNodesRequest(currentState: CurrentClusterState, nodesList: List[Address])
   case class CheckNodesResponse(newSeedNode: Option[Address])

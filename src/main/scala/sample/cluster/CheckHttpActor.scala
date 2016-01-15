@@ -5,12 +5,20 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.{HttpRequest, HttpResponse, StatusCodes}
 import akka.stream.scaladsl.ImplicitMaterializer
 import akka.util.ByteString
-import sample.cluster.CheckHttpActor.{CheckHttpRequest, CheckHttpResponse, GracefulStop}
+import sample.cluster.CheckHttpActor._
 import sample.cluster.api.json.{ApiDecoder, ClusterState}
 
 import scala.util.{Failure, Success}
 
 /**
+  * Actor that checks cluster state by requesting specified http uri.<br/>
+  *
+  * Input message: <code>CheckHttpRequest(uri)</code>
+  * Output message: <code>CheckHttpResponse(clusterState)</code>
+  *
+  * <br/>
+  * Should be stopped with <code>GracefulStop</code> message (<code>StopResult</code> will be send as stop response)
+  *
   * @author Anton Gnutov
   */
 class CheckHttpActor extends Actor with ImplicitMaterializer with ActorLogging {
@@ -49,7 +57,13 @@ class CheckHttpActor extends Actor with ImplicitMaterializer with ActorLogging {
 
     case GracefulStop =>
       val replyTo = sender()
-      http.shutdownAllConnectionPools().pipeTo(replyTo)
+      http.shutdownAllConnectionPools().onComplete {
+        case Success(unit) =>
+          replyTo ! StopSuccess
+          context.stop(self)
+        case Failure(e) =>
+          replyTo ! StopFailure(e.getMessage)
+      }
   }
 }
 
@@ -59,5 +73,9 @@ object CheckHttpActor {
   case class CheckHttpRequest(uri: String)
   case class CheckHttpResponse(state: Option[ClusterState])
   case object GracefulStop
+
+  sealed trait StopResult
+  case object StopSuccess extends StopResult
+  case class StopFailure(message: String) extends StopResult
 }
 
