@@ -27,7 +27,14 @@ libraryDependencies ++= Seq(
     "org.apache.logging.log4j" % "log4j-slf4j-impl" % log4j2Version,
     "org.apache.logging.log4j" % "log4j-core" % log4j2Version,
     "org.apache.logging.log4j" % "log4j-api" % log4j2Version,
-    "com.lmax" % "disruptor" % "3.3.2"
+    "com.lmax" % "disruptor" % "3.3.2",
+
+    // Test Dependencies
+    "org.scalatest" %% "scalatest" % "2.2.5" % "test",
+    "com.typesafe.akka" %% "akka-http-testkit-experimental" % akkaStreamsVersion % "test",
+    "com.typesafe.akka" %% "akka-stream-testkit-experimental" % akkaStreamsVersion % "test",
+    "com.typesafe.akka" %% "akka-testkit" % akkaVersion % "test",
+    "com.typesafe.akka" %% "akka-multi-node-testkit" % akkaVersion % "test"
   )
 
 enablePlugins(JavaAppPackaging)
