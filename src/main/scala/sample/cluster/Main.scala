@@ -1,7 +1,5 @@
 package sample.cluster
 
-import java.util.concurrent.TimeUnit
-
 import akka.actor.{ActorSystem, AddressFromURIString}
 import akka.cluster.Cluster
 import com.typesafe.config.ConfigFactory
@@ -30,8 +28,8 @@ object Main extends App {
   val seedNode = nodesList.head
   SeedNodeProvider.updateSeedNode(seedNode)
 
-  val unreachableTimeout = Duration(config.getString("sample.unreachable.timeout"))
-  val netSplitRefreshInterval = Duration(config.getString("sample.netsplit.refresh-interval"))
+  val unreachableTimeout = config.getDuration("sample.unreachable.timeout").toMillis.milliseconds
+  val netSplitRefreshInterval = config.getDuration("sample.netsplit.refresh-interval").toMillis.milliseconds
 
   val apiHost = config.getString("sample.api.host")
   val apiPort = config.getInt("sample.api.port")
@@ -43,11 +41,7 @@ object Main extends App {
 
     system.actorOf(ApiActor.props(apiHost, apiPort))
     system.actorOf(ClusterManagerActor.props(
-      ClusterManagerConfig(SeedNodeProvider.getSeedNode,
-        nodesList,
-        FiniteDuration(unreachableTimeout.toSeconds, TimeUnit.SECONDS),
-        FiniteDuration(netSplitRefreshInterval.toSeconds, TimeUnit.SECONDS),
-        apiPort)),
+      ClusterManagerConfig(SeedNodeProvider.getSeedNode, nodesList, unreachableTimeout, netSplitRefreshInterval, apiPort)),
       "clusterManager")
 
     Cluster(system).registerOnMemberRemoved {
