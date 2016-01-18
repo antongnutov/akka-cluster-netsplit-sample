@@ -54,3 +54,25 @@ batScriptExtraDefines += """set _JAVA_OPTS=%_JAVA_OPTS% -Dlog4j.configurationFil
 batScriptExtraDefines += """set _JAVA_OPTS=%_JAVA_OPTS% -Dcom.sun.management.jmxremote.port=1099"""
 batScriptExtraDefines += """set _JAVA_OPTS=%_JAVA_OPTS% -Dcom.sun.management.jmxremote.authenticate=false"""
 batScriptExtraDefines += """set _JAVA_OPTS=%_JAVA_OPTS% -Dcom.sun.management.jmxremote.ssl=false"""
+
+// Testing Data
+fork in Test := true
+
+SbtMultiJvm.multiJvmSettings
+
+parallelExecution in Test := false
+compile in MultiJvm <<= (compile in MultiJvm) triggeredBy (compile in Test)
+
+executeTests in Test <<= (executeTests in Test, executeTests in MultiJvm) map {
+    case (testResults, multiNodeResults) =>
+        val overall = if (testResults.overall.id < multiNodeResults.overall.id) {
+            multiNodeResults.overall
+        } else {
+            testResults.overall
+        }
+        Tests.Output(overall,
+            testResults.events ++ multiNodeResults.events,
+            testResults.summaries ++ multiNodeResults.summaries)
+}
+
+configs(MultiJvm)
