@@ -29,10 +29,13 @@ object MultiJvmSpecConfig extends MultiNodeConfig {
     """
     log-dead-letters = 0
     log-dead-letters-during-shutdown = off
+    akka.cluster.auto-join = off
     akka.cluster.metrics.enabled=off
     akka.actor.provider = "akka.cluster.ClusterActorRefProvider"
     akka.remote.netty.tcp.hostname = "127.0.0.1"
     akka.remote.netty.tcp.port = 0
     akka.remote.log-remote-lifecycle-events = off
     """))
+
+  testTransport(on = true)
 }

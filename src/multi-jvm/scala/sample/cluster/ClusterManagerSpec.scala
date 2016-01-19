@@ -4,7 +4,7 @@ import akka.cluster.Cluster
 import akka.cluster.ClusterEvent.{CurrentClusterState, MemberUp}
 import akka.remote.testkit.MultiNodeSpec
 import akka.testkit.ImplicitSender
-import org.scalatest.{BeforeAndAfterAll, Matchers, FlatSpecLike}
+import org.scalatest._
 import sample.cluster.ClusterManagerActor.ClusterManagerConfig
 
 import scala.concurrent.duration._
@@ -12,7 +12,7 @@ import scala.concurrent.duration._
 /**
   * @author Anton Gnutov
   */
-abstract class ClusterManagerSpec extends MultiNodeSpec(MultiJvmSpecConfig) with FlatSpecLike with Matchers
+abstract class ClusterManagerSpec extends MultiNodeSpec(MultiJvmSpecConfig) with WordSpecLike with Matchers
 with BeforeAndAfterAll with ImplicitSender {
 
   override def initialParticipants = roles.size
@@ -23,23 +23,49 @@ with BeforeAndAfterAll with ImplicitSender {
 
   import MultiJvmSpecConfig._
 
-  "Cluster" should "start all nodes in cluster and join them" in within(30.seconds) {
-    Cluster(system).subscribe(testActor, classOf[MemberUp])
-    expectMsgClass(classOf[CurrentClusterState])
+  val unreachableTimeout = 3.seconds
+  val nodes = nodeList.map(node)
+  val addresses = nodes.map(_.address)
+  val firstAddress = addresses.head
 
-    val nodes = nodeList.map(node)
-    val addresses = nodes.map(_.address)
-    val firstAddress = addresses.head
+  "Cluster Manager" should {
+    "start all nodes in cluster and join them" in within(30.seconds) {
+      Cluster(system).subscribe(testActor, classOf[MemberUp])
+      expectMsgClass(classOf[CurrentClusterState])
 
-    system.actorOf(ClusterManagerActor.props(
-      ClusterManagerConfig(firstAddress, addresses, 5.seconds, 5.seconds),
-      StubActor.props))
+      system.actorOf(ClusterManagerActor.props(
+        ClusterManagerConfig(firstAddress, addresses, unreachableTimeout, unreachableTimeout),
+        StubActor.props))
 
-    receiveN(initialParticipants).collect { case MemberUp(m) => m.address }.toSet should be(
-      addresses.toSet)
+      receiveN(initialParticipants).collect { case MemberUp(m) => m.address }.toSet should be(addresses.toSet)
 
-    Cluster(system).unsubscribe(testActor)
-    testConductor.enter("all-up")
+      Cluster(system).unsubscribe(testActor)
+      testConductor.enter("all-up")
+    }
+
+    "shut down a node" in within(30.seconds) {
+      val thirdAddress = addresses(2)
+      runOn(first) {
+        testConductor.shutdown(third)
+      }
+
+      runOn(first, second, fourth, fifth) {
+        testConductor.enter("node-shutdown")
+      }
+
+      runOn(first, second, fourth, fifth) {
+        // verify that other nodes detect the crash
+
+        awaitCond {
+          Cluster(system).sendCurrentClusterState(testActor)
+          receiveOne(3.seconds) match {
+            case CurrentClusterState(members, _, _, _, _) if members.map(_.address) == addresses.toSet.filterNot(_ == thirdAddress) => true
+            case _ => false
+          }
+        }
+        testConductor.enter("node crash detected")
+      }
+    }
   }
 }
 
