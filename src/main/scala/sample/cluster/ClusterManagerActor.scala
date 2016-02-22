@@ -61,7 +61,7 @@ class ClusterManagerActor(config: ClusterManagerConfig, checkClusterProps: Props
   when(Start) {
     case Event(JoinCluster, _) =>
       log.debug("Trying to join the cluster ...")
-      cluster.join(config.seedNode)
+      cluster.join(getSeedNode)
       stay()
 
     case Event(MemberJoined(member), _) =>
@@ -100,7 +100,7 @@ class ClusterManagerActor(config: ClusterManagerConfig, checkClusterProps: Props
 
     case Event(CheckNodesResponse(Some(leader)), _) =>
       log.debug("Stopping http client ...")
-      context.actorSelection("/user/clusterManager/checkCluster/checkHttp") ? GracefulStop onComplete {
+      checkCluster ? GracefulStop onComplete {
         case _ =>
           //TODO: invent more FP-style solution how to store leader
           log.info("Updating seedNode to {}", leader)
@@ -165,15 +165,17 @@ class ClusterManagerActor(config: ClusterManagerConfig, checkClusterProps: Props
   }
 
   private def onNodeRemoved(member: Member): Any = {
-    if (cluster.state.members.size == 1 && cluster.selfAddress != config.seedNode) {
+    if (cluster.state.members.size == 1 && cluster.selfAddress != getSeedNode) {
       log.warning("Only 1 node remain in the cluster, restarting ...")
       context.stop(self)
-    } else if (member.address == config.seedNode) {
+    } else if (member.address == getSeedNode) {
       log.warning("Lost seedNode")
       log.debug("Scheduling cluster network split search ...")
       setTimer("RefreshNetSplit", RefreshNetSplit, 1.second)
     }
   }
+
+  private def getSeedNode: Address = config.seedNode.getOrElse(cluster.selfAddress)
 
   whenUnhandled {
     case Event(e, s) =>
@@ -191,7 +193,7 @@ class ClusterManagerActor(config: ClusterManagerConfig, checkClusterProps: Props
 
 object ClusterManagerActor {
 
-  case class ClusterManagerConfig(seedNode: Address, nodesList: List[Address], unreachableTimeout: FiniteDuration,
+  case class ClusterManagerConfig(seedNode: Option[Address], nodesList: List[Address], unreachableTimeout: FiniteDuration,
                                   netSplitRefreshInterval: FiniteDuration)
 
   sealed trait Data

@@ -3,9 +3,10 @@ package sample.cluster
 import akka.actor.{Actor, ActorLogging, Address, Props}
 import akka.cluster.ClusterEvent.CurrentClusterState
 import akka.pattern.ask
+import akka.pattern.pipe
 import akka.util.Timeout
 import sample.cluster.CheckClusterActor.{CheckNodesRequest, CheckNodesResponse}
-import sample.cluster.CheckHttpActor.{CheckHttpRequest, CheckHttpResponse}
+import sample.cluster.CheckHttpActor.{GracefulStop, CheckHttpRequest, CheckHttpResponse}
 
 import scala.concurrent.duration._
 import scala.util.Success
@@ -31,8 +32,8 @@ class CheckClusterActor(val apiPort: Int, checkHttpProps: Props) extends Actor w
 
   override def receive: Receive = {
     case CheckNodesRequest(currentState, nodes) =>
-      val currentHosts: List[String] = currentState.members.flatMap(_.address.host).toList
-      val diff: List[String] = nodes.flatMap(_.host).diff(currentHosts)
+      val currentHosts: Set[String] = currentState.members.flatMap(_.address.host).toSet
+      val diff: Set[String] = nodes.flatMap(_.host).toSet.diff(currentHosts)
       log.debug("Checking nodes for http connection: {}", diff.mkString("[", ", ", "]"))
 
       val replyTo = sender()
@@ -43,15 +44,19 @@ class CheckClusterActor(val apiPort: Int, checkHttpProps: Props) extends Actor w
             val newHosts = clusterState.members.flatMap(_.address.host).toList.sorted
 
             log.debug("Detected cluster with hosts: {}", newHosts.mkString("[", ", ", "]"))
-            log.debug("Current cluster hosts: {}", currentHosts.sorted.mkString("[", ", ", "]"))
+            log.debug("Current cluster hosts: {}", currentHosts.mkString("[", ", ", "]"))
 
-            if (newHosts.nonEmpty && (currentHosts.isEmpty || newHosts.head < currentHosts.sorted.head)) {
+            if (newHosts.nonEmpty && (currentHosts.isEmpty || newHosts.head < currentHosts.toList.sorted.head)) {
               replyTo ! CheckNodesResponse(clusterState.leader)
             }
 
           case _ => log.warning("Could not receive response for host {}", host)
         }
       }
+
+    case GracefulStop =>
+      val replyTo = sender()
+      checkHttp ? GracefulStop pipeTo replyTo
   }
 }
 

@@ -47,11 +47,11 @@ class CheckHttpActor extends Actor with ImplicitMaterializer with ActorLogging {
       log.info("Received response: {}", string)
 
       ApiDecoder.decodeState(string) match {
-        case Success(state) =>
+        case Success(state) if state.leader.isDefined =>
           log.info("Cluster state: {}", state)
           sender() ! CheckHttpResponse(Some(state))
-        case Failure(e) =>
-          log.warning("Could not deserialize cluster state: {}", e.getMessage)
+        case _ =>
+          log.warning("Could not deserialize cluster state")
           sender() ! CheckHttpResponse(None)
       }
 

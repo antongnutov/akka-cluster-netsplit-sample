@@ -7,13 +7,11 @@ import akka.actor.Address
   */
 object SeedNodeProvider {
 
-  private var seedNode: Address = _
+  private var seedNode: Option[Address] = None
 
-  def getSeedNode: Address = synchronized {
-    seedNode
-  }
+  def getSeedNode: Option[Address] = synchronized(seedNode)
 
   def updateSeedNode(seedNode: Address): Unit = synchronized {
-    this.seedNode = seedNode
+    this.seedNode = Option(seedNode)
   }
 }
