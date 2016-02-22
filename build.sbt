@@ -6,9 +6,8 @@ organization in ThisBuild := "sample"
 
 scalaVersion := "2.11.7"
 
-val akkaVersion = "2.4.1"
-val akkaStreamsVersion = "2.0.1"
-val log4j2Version = "2.4.1"
+val akkaVersion = "2.4.2"
+val log4j2Version = "2.5"
 
 libraryDependencies ++= Seq(
     // Akka
@@ -17,8 +16,8 @@ libraryDependencies ++= Seq(
     "com.typesafe.akka" %% "akka-slf4j" % akkaVersion,
 
     // Reactive Stream Dependencies
-    "com.typesafe.akka" %% "akka-http-experimental" % akkaStreamsVersion,
-    // "com.typesafe.akka" %% "akka-http-spray-json-experimental" % akkaStreamsVersion,
+    "com.typesafe.akka" %% "akka-http-core" % akkaVersion,
+    "com.typesafe.akka" %% "akka-http-experimental" % akkaVersion,
 
     // JSON
     "org.json4s" %% "json4s-jackson" % "3.3.0",
@@ -31,8 +30,8 @@ libraryDependencies ++= Seq(
 
     // Test Dependencies
     "org.scalatest" %% "scalatest" % "2.2.5" % "test",
-    "com.typesafe.akka" %% "akka-http-testkit-experimental" % akkaStreamsVersion % "test",
-    "com.typesafe.akka" %% "akka-stream-testkit-experimental" % akkaStreamsVersion % "test",
+    "com.typesafe.akka" %% "akka-http-testkit" % akkaVersion % "test",
+    "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % "test",
     "com.typesafe.akka" %% "akka-testkit" % akkaVersion % "test",
     "com.typesafe.akka" %% "akka-multi-node-testkit" % akkaVersion % "test"
   )

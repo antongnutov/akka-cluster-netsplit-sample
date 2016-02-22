@@ -3,7 +3,7 @@ package sample.cluster
 import akka.actor.{Actor, ActorLogging, Props}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.{HttpRequest, HttpResponse, StatusCodes}
-import akka.stream.scaladsl.ImplicitMaterializer
+import akka.stream.{ActorMaterializerSettings, ActorMaterializer}
 import akka.util.ByteString
 import sample.cluster.CheckHttpActor._
 import sample.cluster.api.json.{ApiDecoder, ClusterState}
@@ -21,12 +21,13 @@ import scala.util.{Failure, Success}
   *
   * @author Anton Gnutov
   */
-class CheckHttpActor extends Actor with ImplicitMaterializer with ActorLogging {
+class CheckHttpActor extends Actor with ActorLogging {
 
   import akka.pattern.pipe
   import context.dispatcher
 
   val http = Http(context.system)
+  final implicit val materializer: ActorMaterializer = ActorMaterializer(ActorMaterializerSettings(context.system))
 
   override def receive = {
     case CheckHttpRequest(uri) =>
